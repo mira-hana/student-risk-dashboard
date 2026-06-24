@@ -48,7 +48,6 @@ if uploaded_file is not None:
         features_df = pd.DataFrame(student_features)
         
         # 5. Load the Saved Random Forest Model
-        # Replace this path with where your pkl file lives locally or in your repository
         with open('final_rf_model.pkl', 'rb') as f:
             model = pickle.load(f)
             
@@ -78,7 +77,8 @@ if uploaded_file is not None:
             color = '#ffccd5' if val == "🚨 AT-RISK" else '#d8f3dc'
             return f'background-color: {color}'
             
-        styled_df = features_df[['Student ID', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.applymap(color_status, subset=['Status'])
+        # FIX: Migrated from .applymap() to .map() to maintain consistency with recent Pandas updates
+        styled_df = features_df[['Student ID', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.map(color_status, subset=['Status'])
         
         st.dataframe(styled_df, use_container_width=True)
         
