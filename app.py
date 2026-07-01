@@ -5,47 +5,61 @@ import io
 
 st.set_page_config(page_title="Early Warning Tutor Dashboard", layout="wide")
 st.title("🎓 Student Early Warning & Intervention Dashboard")
-st.markdown("Upload your raw weekly class logs to instantly flag at-risk students using your dynamically generated optimized models.")
+st.markdown("Upload your weekly class logs to instantly flag at-risk students using your dynamically generated optimized models.")
 
 st.sidebar.header("🔧 Model Settings")
 threshold = st.sidebar.slider("Risk Probability Threshold", min_value=0.10, max_value=0.90, value=0.40, step=0.05)
 
-uploaded_file = st.file_uploader("Choose a raw student logs Excel file (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("Choose a student logs Excel file (.xlsx)", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file)
         
-        required_raw_cols = ['Student Name', 'Date', 'Body']
+        # 1. Flexible Column Validation Checks
+        required_raw_cols = ['Date', 'Body']
         missing_cols = [col for col in required_raw_cols if col not in df.columns]
+        
+        # Ensure at least one identity structural reference is present
+        if 'Student Name' not in df.columns and 'Student ID' not in df.columns:
+            st.error("❌ Missing identity column: Your file must contain either 'Student Name' or 'Student ID'.")
+            st.stop()
+            
         if missing_cols:
             st.error(f"❌ Missing required columns in the uploaded file: {missing_cols}")
             st.stop()
 
-        # Dynamic Generation of Custom Student IDs (Master Key Generation)
-        def generate_custom_id(row, idx):
-            name = str(row['Student Name']).strip()
-            initials = "".join([part[0].upper() for part in name.split() if part])[:3]
-            return f"{idx}itk{initials}"
+        # 2. Dynamic Identity Mapping and Data Governance
+        if 'Student ID' not in df.columns and 'Student Name' in df.columns:
+            # Generate Custom Student IDs if given raw text names
+            def generate_custom_id(row, idx):
+                name = str(row['Student Name']).strip()
+                initials = "".join([part[0].upper() for part in name.split() if part])[:3]
+                return f"{idx}itk{initials}"
 
-        unique_students = pd.DataFrame(df['Student Name'].unique(), columns=['Student Name']).reset_index(drop=True)
-        unique_students['Student ID'] = unique_students.apply(lambda row: generate_custom_id(row, row.name + 1), axis=1)
-        
-        id_mapping = dict(zip(unique_students['Student Name'], unique_students['Student ID']))
-        df['Student ID'] = df['Student Name'].map(id_mapping)
+            unique_students = pd.DataFrame(df['Student Name'].unique(), columns=['Student Name']).reset_index(drop=True)
+            unique_students['Student ID'] = unique_students.apply(lambda row: generate_custom_id(row, row.name + 1), axis=1)
+            
+            id_mapping = dict(zip(unique_students['Student Name'], unique_students['Student ID']))
+            df['Student ID'] = df['Student Name'].map(id_mapping)
 
-        # Download button for governance master key mapping
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("📥 Data Governance")
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            unique_students.to_excel(writer, index=False, sheet_name='Master_Key_Map')
-        st.sidebar.download_button(
-            label="Download Master Key Map (.xlsx)",
-            data=output.getvalue(),
-            file_name="student_id_master_key.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            # Provide the downloadable master key lookup sheet in the sidebar
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("📥 Data Governance")
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                unique_students.to_excel(writer, index=False, sheet_name='Master_Key_Map')
+            st.sidebar.download_button(
+                label="Download Master Key Map (.xlsx)",
+                data=output.getvalue(),
+                file_name="student_id_master_key.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            # If the file already has 'Student ID' and no 'Student Name', use 'Student ID' for display placeholders
+            if 'Student Name' not in df.columns:
+                df['Student Name'] = df['Student ID']
+            st.sidebar.info("✅ 'Student ID' column detected directly in source data.")
 
         # ==============================================================================
         # STAGE 1: RUN DYNAMIC DIFFICULTY TEXT INFERENCE IN MEMORY
@@ -53,7 +67,6 @@ if uploaded_file is not None:
         with open('optimized_difficulty_model.pkl', 'rb') as f:
             difficulty_pipeline = pickle.load(f)
         
-        # Format input matches expectations of Stage 1 Pipeline 
         text_df = pd.DataFrame({'Combined_Text': df['Body'].fillna('').astype(str)})
         df['MajorityVote_Difficulty'] = difficulty_pipeline.predict(text_df)
 
@@ -112,4 +125,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"An error occurred while running the prediction framework: {e}")
 else:
-    st.info("💡 Please upload your raw class log workbook to begin tracking.")
+    st.info("💡 Please upload your class log workbook to begin tracking.")
