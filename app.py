@@ -20,20 +20,18 @@ if uploaded_file is not None:
         # Load raw Excel data
         df = pd.read_excel(uploaded_file)
         
-        # Validation checks for required raw columns
-        required_raw_cols = ['Student Name', 'Date', 'Body', 'MajorityVote_Difficulty']
+        # REMOVED 'MajorityVote_Difficulty' from required columns
+        required_raw_cols = ['Student Name', 'Date', 'Body']
         missing_cols = [col for col in required_raw_cols if col not in df.columns]
         if missing_cols:
             st.error(f"❌ Missing required columns in the uploaded file: {missing_cols}")
             st.stop()
 
         # Dynamic Generation of Custom Student IDs (Master Key Generation)
-        # Assuming we need to resolve Center Name and Initials from existing columns or fallback rules
-        # For safety, we extract initials dynamically from Student Name if not explicitly provided
         def generate_custom_id(row, idx):
             name = str(row['Student Name']).strip()
             initials = "".join([part[0].upper() for part in name.split() if part])[:3]
-            center_name = "itk"  # Baseline template identifier based on your formula context
+            center_name = "itk"  
             return f"{idx}{center_name}{initials}"
 
         # Build Master Key mapping using unique Student Names
@@ -66,14 +64,12 @@ if uploaded_file is not None:
         
         st.success("📊 Raw file mapped and processed successfully! Running feature pipeline...")
         
-        # 4. Feature Engineering Pipeline (Configured to look at raw 'Body')
+        # 4. Feature Engineering Pipeline (Configured to look at raw 'Body' only)
         student_features = []
         for student_id, group in df.groupby('Student ID'):
             early_lessons = group.head(3)
             
-            # CRITICAL SWITCH: Swapped out 'Model_Ready_Text' for raw text from 'Body'
             combined_text = " ".join(early_lessons['Body'].fillna('').astype(str))
-            avg_early_difficulty = early_lessons['MajorityVote_Difficulty'].mean()
             
             if len(early_lessons) > 1:
                 date_gaps = early_lessons['Date'].diff().dt.days.dropna()
@@ -83,9 +79,8 @@ if uploaded_file is not None:
                 
             student_features.append({
                 'Student ID': student_id,
-                'Student Name': early_lessons['Student Name'].iloc[0], # Keep track of name for the UI
+                'Student Name': early_lessons['Student Name'].iloc[0], 
                 'Combined_Text': combined_text,
-                'Avg_Early_Difficulty': round(avg_early_difficulty, 2),
                 'Avg_Days_Between_Classes': round(avg_days_between_classes, 1)
             })
             
@@ -96,7 +91,8 @@ if uploaded_file is not None:
             model = pickle.load(f)
             
         # 6. Generate Predictions
-        X_new = features_df[['Combined_Text', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes']]
+        # NOTE: If your 'final_rf_model.pkl' still requires 'Avg_Early_Difficulty', this line will error out.
+        X_new = features_df[['Combined_Text', 'Avg_Days_Between_Classes']]
         probabilities = model.predict_proba(X_new)[:, 1]
         
         features_df['Risk Probability'] = probabilities
@@ -121,8 +117,8 @@ if uploaded_file is not None:
             color = '#ffccd5' if val == "🚨 AT-RISK" else '#d8f3dc'
             return f'background-color: {color}'
             
-        # Display includes both newly mapped ID and Name for convenient monitoring
-        styled_df = features_df[['Student ID', 'Student Name', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.map(color_status, subset=['Status'])
+        # Removed 'Avg_Early_Difficulty' from the display dataframe layout
+        styled_df = features_df[['Student ID', 'Student Name', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.map(color_status, subset=['Status'])
         
         st.dataframe(styled_df, use_container_width=True)
         
