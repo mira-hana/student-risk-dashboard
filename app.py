@@ -20,7 +20,7 @@ if uploaded_file is not None:
         # Load raw Excel data
         df = pd.read_excel(uploaded_file)
         
-        # REMOVED 'MajorityVote_Difficulty' from required columns
+        # Verify required columns are present
         required_raw_cols = ['Student Name', 'Date', 'Body']
         missing_cols = [col for col in required_raw_cols if col not in df.columns]
         if missing_cols:
@@ -58,18 +58,39 @@ if uploaded_file is not None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # Standard Preprocessing Setup
+        # ==============================================================================
+        # STAGE 1: INFER MISSING DIFFICULTY LABELS FROM TEXT
+        # ==============================================================================
+        st.info("🔄 Stage 1: Predicting lesson difficulties from text...")
+        
+        # Load your optimized text classification pipeline (e.g., the saved Random Forest/LGBM from your training)
+        # This file must exist in your directory and should expect a DataFrame with a text column.
+        with open('optimized_random_forest_model.pkl', 'rb') as f:
+            difficulty_model_pipeline = pickle.load(f)
+        
+        # Prepare inputs for the text model (it expects the text column name it was trained on)
+        # We temporarily match the name 'Combined_Text' or whatever column name your pipeline expects.
+        text_df = pd.DataFrame({'Combined_Text': df['Body'].fillna('').astype(str)})
+        
+        # Predict the missing 'MajorityVote_Difficulty' for every single log row
+        df['MajorityVote_Difficulty'] = difficulty_model_pipeline.predict(text_df)
+        
+        # ==============================================================================
+        # STAGE 2: STANDARD FEATURE ENGINEERING PIPELINE
+        # ==============================================================================
         df['Date'] = pd.to_datetime(df['Date'])
         df = df.sort_values(by=['Student ID', 'Date'])
         
-        st.success("📊 Raw file mapped and processed successfully! Running feature pipeline...")
+        st.success("📊 Stage 2: Difficulties inferred! Synthesizing early-warning indicators...")
         
-        # 4. Feature Engineering Pipeline (Configured to look at raw 'Body' only)
         student_features = []
         for student_id, group in df.groupby('Student ID'):
             early_lessons = group.head(3)
             
             combined_text = " ".join(early_lessons['Body'].fillna('').astype(str))
+            
+            # This is now calculated using our predicted values from Stage 1!
+            avg_early_difficulty = early_lessons['MajorityVote_Difficulty'].mean()
             
             if len(early_lessons) > 1:
                 date_gaps = early_lessons['Date'].diff().dt.days.dropna()
@@ -81,19 +102,19 @@ if uploaded_file is not None:
                 'Student ID': student_id,
                 'Student Name': early_lessons['Student Name'].iloc[0], 
                 'Combined_Text': combined_text,
+                'Avg_Early_Difficulty': round(avg_early_difficulty, 2),
                 'Avg_Days_Between_Classes': round(avg_days_between_classes, 1)
             })
             
         features_df = pd.DataFrame(student_features)
         
-        # 5. Load the Saved Random Forest Model
+        # Load the final risk classification model
         with open('final_rf_model.pkl', 'rb') as f:
-            model = pickle.load(f)
+            risk_model = pickle.load(f)
             
         # 6. Generate Predictions
-        # NOTE: If your 'final_rf_model.pkl' still requires 'Avg_Early_Difficulty', this line will error out.
-        X_new = features_df[['Combined_Text', 'Avg_Days_Between_Classes']]
-        probabilities = model.predict_proba(X_new)[:, 1]
+        X_new = features_df[['Combined_Text', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes']]
+        probabilities = risk_model.predict_proba(X_new)[:, 1]
         
         features_df['Risk Probability'] = probabilities
         features_df['Status'] = ["🚨 AT-RISK" if p >= threshold else "✅ On Track" for p in probabilities]
@@ -117,8 +138,7 @@ if uploaded_file is not None:
             color = '#ffccd5' if val == "🚨 AT-RISK" else '#d8f3dc'
             return f'background-color: {color}'
             
-        # Removed 'Avg_Early_Difficulty' from the display dataframe layout
-        styled_df = features_df[['Student ID', 'Student Name', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.map(color_status, subset=['Status'])
+        styled_df = features_df[['Student ID', 'Student Name', 'Avg_Early_Difficulty', 'Avg_Days_Between_Classes', 'Risk Probability', 'Status']].style.map(color_status, subset=['Status'])
         
         st.dataframe(styled_df, use_container_width=True)
         
