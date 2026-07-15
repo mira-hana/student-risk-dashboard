@@ -8,7 +8,14 @@ st.title("🎓 Student Early Warning & Intervention Dashboard")
 st.markdown("Upload your weekly class logs to instantly flag at-risk students using your dynamically generated optimized models.")
 
 st.sidebar.header("🔧 Model Settings")
-threshold = st.sidebar.slider("Risk Probability Threshold", min_value=0.10, max_value=0.90, value=0.40, step=0.05)
+# Swapped st.sidebar.slider for st.sidebar.number_input to allow direct typing
+threshold = st.sidebar.number_input(
+    "Risk Probability Threshold", 
+    min_value=0.10, 
+    max_value=0.90, 
+    value=0.40, 
+    step=0.05
+)
 
 uploaded_file = st.file_uploader("Choose a student logs Excel file (.xlsx)", type=["xlsx"])
 
@@ -113,7 +120,7 @@ if uploaded_file is not None:
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Monitored Students", len(features_df))
         col2.metric("Flagged At-Risk Students", at_risk_count, delta=f"{at_risk_count} requires attention", delta_color="inverse")
-        col3.metric("Current Decision Cutoff", f"{threshold*100}%")
+        col3.metric("Current Decision Cutoff", f"{round(threshold*100, 1)}%")
         
         st.subheader("📋 Student Risk Assessment Queue")
         def color_status(val):
